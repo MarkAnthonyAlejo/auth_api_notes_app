@@ -1,3 +1,4 @@
+import { Request } from 'express';
 
 export interface User {
     id: string;
@@ -11,3 +12,7 @@ export type UserPayload = {
     email?: string;
     username?: string;
   };
+
+  export interface AuthenticatedRequest extends Request {
+    user?: UserPayload;
+  }

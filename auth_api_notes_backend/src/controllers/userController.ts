@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt';
 import jwt from "jsonwebtoken";
 import dotenv from 'dotenv';
 import { supabase } from "../connection/supabaseClient";
+import { signToken } from "../middleware/auth";
 
 dotenv.config();
 
@@ -13,6 +14,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
     if (!email || !password) {
         res.status(400).json({ error: 'Email and password are required' });
+        return;
     }
 
     const { data: user, error } = await supabase
@@ -50,3 +52,75 @@ export const login = async (req: Request, res: Response): Promise<void> => {
         token,
     });
 }
+
+export const registerUser = async (req: Request,res:Response): Promise<void> => {
+    try {
+        const { email, name, password } = req.body;
+    
+        // Basic validation
+        if (!email || !name || !password) {
+          res.status(400).json({ error: 'Email, username, and password are required' });
+          return;
+        }
+    
+        // Check if user already exists
+        const { data: existingUser, error: checkError } = await supabase
+          .from('users')
+          .select('*')
+          .or(`email.eq.${email},username.eq.${name}`)
+          .single();
+    
+        if (existingUser) {
+          res.status(409).json({ error: 'Email or username already in use' });
+          return;
+        }
+    
+        // Hash password
+        const saltRounds = 10;
+        const hashedPassword = await bcrypt.hash(password, saltRounds);
+    
+        // Insert user into Supabase
+        const { data: newUser, error: insertError } = await supabase
+          .from('users')
+          .insert([{ email, name, password: hashedPassword }])
+          .select()
+          .single();
+    
+        if (insertError) {
+          throw insertError;
+        }
+    
+        // Generate token
+        const payload = { id: newUser.id, email: newUser.email, username: newUser.username };
+        // const token = signToken(payload);
+        const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '24h' });
+    
+        res.status(201).json({
+          message: 'User registered successfully',
+          user: payload,
+          token,
+        });
+      } catch (err: any) {
+        console.error('Register error:', err.message || err);
+        res.status(500).json({ error: 'Server error during registration' });
+      }
+}
+
+export const getAllUsers = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('id, email, name, created_at'); // Select only safe fields
+  
+      if (error) {
+        console.error('Supabase fetch users error:', error.message);
+        res.status(500).json({ error: 'Failed to fetch users' });
+        return;
+      }
+  
+      res.status(200).json({ users: data });
+    } catch (err) {
+      console.error('Server error fetching users:', err);
+      res.status(500).json({ error: 'Server error fetching users' });
+    }
+  };
